@@ -39,7 +39,7 @@ RUN wget -q https://github.com/filebrowser/filebrowser/releases/download/v2.27.0
 WORKDIR /app
 
 # 复制脚本和依赖文件
-COPY cnb_tvbox_tools.py .
+COPY tvbox_tools.py .
 COPY requirements.txt .
 
 # 安装Python依赖
