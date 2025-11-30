@@ -4,13 +4,19 @@ FROM python:3.9-slim
 # 维护者信息（可选）
 LABEL maintainer="tvbox-docker"
 
-# 设置环境变量（适配Chrome和Python）
+# 设置环境变量（默认值：URL为示例接口，更新间隔96小时）
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
-    TZ=Asia/Shanghai
+    TZ=Asia/Shanghai \
+    TVBOX_URL="https://tvbox.catvod.com/xs/api.json?signame=xs" \
+    TVBOX_UPDATE_INTERVAL=96 \
+    TVBOX_NUM=10 \
+    TVBOX_TIMEOUT=3 \
+    TVBOX_JAR_SUFFIX=jar \
+    SITE_DOWN=True
 
-# 安装系统依赖（Chrome、Filebrowser、Cron等）
+# 安装系统依赖（Chrome、Filebrowser等，移除Cron依赖）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libssl-dev \
@@ -20,7 +26,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     unzip \
     chromium-browser \
-    cron \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
@@ -34,15 +39,11 @@ RUN wget -q https://github.com/filebrowser/filebrowser/releases/download/v2.27.0
 WORKDIR /app
 
 # 复制脚本和依赖文件
-COPY tvbox_tools.py .
+COPY cnb_tvbox_tools.py .
 COPY requirements.txt .
 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
-
-# 配置Cron定时任务（每天凌晨3点执行下载脚本）
-RUN echo "0 3 * * * python /app/tvbox_tools.py >> /app/download.log 2>&1" >> /etc/crontab \
-    && chmod 644 /etc/crontab
 
 # 复制启动脚本
 COPY start.sh .
