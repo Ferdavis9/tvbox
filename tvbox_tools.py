@@ -92,7 +92,7 @@ class GetSrc:
                 local_path = os.path.join(api_drpy2_dir, filename)
                 if os.path.exists(local_path):
                     continue
-                json_url = f"https://github.moeyy.xyz/https://raw.githubusercontent.com/fish2018/lib/main/js/dr_py/{filename}"
+                json_url = f"https://gh-proxy.org/https://raw.githubusercontent.com/fish2018/lib/main/js/dr_py/{filename}"
 
                 async def download_task(json_url=json_url, local_path=local_path, filename=filename):
                     retries = 3
