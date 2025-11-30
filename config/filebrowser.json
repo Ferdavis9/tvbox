@@ -1,0 +1,16 @@
+{
+  "port": 27677,
+  "baseURL": "",
+  "address": "0.0.0.0",
+  "log": "stdout",
+  "database": "/data/filebrowser.db",
+  "root": "/data",
+  "auth.method": "json",
+  "commands": [],
+  "shell": [],
+  "staticGen": "",
+  "recaptchaHost": "",
+  "recaptchaKey": "",
+  "recaptchaSecret": "",
+  "signup": false
+}
