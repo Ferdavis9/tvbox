@@ -19,6 +19,7 @@ import shutil
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urljoin
 import commentjson
+import chardet
 
 ssl._create_default_https_context = ssl._create_unverified_context
 import urllib3
@@ -38,12 +39,20 @@ class GetSrc:
         self.url = url.replace(' ','').replace('，',',') if url else url
         self.repo = repo if repo else 'tvbox'
         self.target = f'{target.split(".json")[0]}.json' if target else 'tvbox.json'
-        self.headers = {"user-agent": "okhttp/3.15 Html5Plus/1.0 (Immersed/23.92157)"}
+        self.headers = {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1"
+        }
         self.s = requests.Session()
-        self.signame = signame
-        retries = Retry(total=3, backoff_factor=1)
+        # 增加重试机制
+        retries = Retry(total=5, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
         self.s.mount('http://', HTTPAdapter(max_retries=retries))
         self.s.mount('https://', HTTPAdapter(max_retries=retries))
+        self.signame = signame
         self.size_tolerance = 15  # 线路文件大小误差在15以内认为是同一个
         
         # 定义 drpy2 文件列表
@@ -54,6 +63,18 @@ class GetSrc:
             "cheerio.min.js", "deep.parse.js", "gbk.js", "jinja.js", "json5.js",
             "node-rsa.js", "script.js", "spider.js", "模板.js", "quark.min.js"
         ]
+
+    def detect_encoding(self, content):
+        """自动检测编码"""
+        try:
+            result = chardet.detect(content)
+            encoding = result['encoding']
+            confidence = result['confidence']
+            if encoding and confidence > 0.7:
+                return encoding
+        except:
+            pass
+        return 'utf-8'
 
     async def download_drpy2_files(self):
         """
@@ -70,9 +91,8 @@ class GetSrc:
             for filename in self.drpy2_files:
                 local_path = os.path.join(api_drpy2_dir, filename)
                 if os.path.exists(local_path):
-                    # print(f"文件已存在，跳过: {local_path}")
                     continue
-                json_url = f"https://gh-proxy.org/https://raw.githubusercontent.com/fish2018/lib/main/js/dr_py/{filename}"
+                json_url = f"https://github.moeyy.xyz/https://raw.githubusercontent.com/fish2018/lib/main/js/dr_py/{filename}"
 
                 async def download_task(json_url=json_url, local_path=local_path, filename=filename):
                     retries = 3
@@ -83,10 +103,8 @@ class GetSrc:
                                 content = await response.read()
                                 with open(local_path, "wb") as f:
                                     f.write(content)
-                                # print(f"下载成功: {filename}")
                                 return True
                         except Exception as e:
-                            # print(f"下载 {json_url} 失败 (尝试 {attempt + 1}/{retries}): {e}")
                             if attempt < retries - 1:
                                 await asyncio.sleep(1)
                             else:
@@ -96,11 +114,7 @@ class GetSrc:
                 tasks.append(download_task())
 
             if tasks:
-                # print(f"开始下载 {len(tasks)} 个 drpy2 文件")
                 await asyncio.gather(*tasks, return_exceptions=True)
-            else:
-                pass
-                # print("所有 drpy2 文件已存在，无需下载")
 
     def file_hash(self, filepath):
         with open(filepath, 'rb') as f:
@@ -150,7 +164,6 @@ class GetSrc:
                 try:
                     # 重命名文件
                     os.rename(old_file, new_file)
-                    # print(f"文件已重命名: {old_file} -> {new_file}")
                 except Exception as e:
                     pass
 
@@ -187,48 +200,63 @@ class GetSrc:
         return res
 
     def picparse(self, url):
-        r = self.s.get(url, headers=self.headers, timeout=self.timeout, verify=False)
-        pattern = r'([A-Za-z0-9+/]+={0,2})'
-        matches = re.findall(pattern, r.text)
-        decoded_data = base64.b64decode(matches[-1])
-        text = decoded_data.decode('utf-8')
-        return text
+        try:
+            r = self.s.get(url, headers=self.headers, timeout=self.timeout, verify=False)
+            pattern = r'([A-Za-z0-9+/]+={0,2})'
+            matches = re.findall(pattern, r.text)
+            if matches:
+                decoded_data = base64.b64decode(matches[-1])
+                text = decoded_data.decode('utf-8')
+                return text
+        except Exception as e:
+            print(f"图片解析失败: {e}")
+        return ""
 
     async def js_render(self, url):
-        # 获取 JS 渲染页面源代码
+        """获取 JS 渲染页面源代码"""
         timeout = self.timeout * 4
         if timeout > 15:
             timeout = 15
-        browser_args = [
-            '--no-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-setuid-sandbox',
-        ]
-        from requests_html import AsyncHTMLSession
-
-        session = AsyncHTMLSession(browser_args=browser_args)
+        
         try:
-            r = await session.get(
-                f'http://lige.unaux.com/?url={url}',
-                headers=self.headers,
-                timeout=timeout,
-                verify=False,
-            )
-            # 等待页面加载完成并渲染 JavaScript
-            await r.html.arender(timeout=timeout)
-            return r.html
-        finally:
-            await session.close()
+            from requests_html import AsyncHTMLSession
+            
+            browser_args = [
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-software-rasterizer',
+                '--disable-setuid-sandbox',
+            ]
+            
+            session = AsyncHTMLSession(browser_args=browser_args)
+            try:
+                # 使用更稳定的代理服务
+                proxy_url = f'https://r.jina.ai/{url}'
+                r = await session.get(
+                    proxy_url,
+                    headers=self.headers,
+                    timeout=timeout,
+                    verify=False,
+                )
+                # 等待页面加载完成
+                await asyncio.sleep(2)
+                return r.html
+            except Exception as e:
+                print(f"JS渲染失败: {e}")
+                # 备用方案：直接返回空内容
+                from requests_html import HTML
+                return HTML(html="")
+            finally:
+                await session.close()
+        except Exception as e:
+            print(f"JS渲染初始化失败: {e}")
+            from requests_html import HTML
+            return HTML(html="")
 
     async def site_file_down(self, files, url):
         """
         异步函数，用于同时下载和更新 ext、jar 和 api 文件。
-
-        参数:
-            files: 包含一个或两个文件路径的列表，例如 ['api.json', 'output.json']
-            url: 基础 URL，用于构造完整的下载 URL
         """
         # 设置 ext、jar 和 api 的保存目录
         ext_dir = f"{self.repo}/ext"
@@ -243,14 +271,14 @@ class GetSrc:
         file = files[0]
         file2 = files[1] if len(files) > 1 else ''
 
-        with open(file, 'r', encoding='utf-8') as f:
-            try:
+        try:
+            with open(file, 'r', encoding='utf-8') as f:
                 api_data = commentjson.load(f)
                 sites = api_data["sites"]
                 print(f"总站点数: {len(sites)}")
-            except Exception as e:
-                # print(f"解析 {file} 失败: {e}")
-                return
+        except Exception as e:
+            print(f"解析 {file} 失败: {e}")
+            return
 
         # 使用 aiohttp 创建会话并收集下载任务
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False),
@@ -270,13 +298,12 @@ class GetSrc:
                             elif field == "api":
                                 if os.path.basename(clean_value).lower() in ["drpy2.min.js","quark.min.js"]:
                                     self.drpy2 = True
-                                    # 替换 api 字段为本地路径
                                     site[field] = f"./api/drpy2/{os.path.basename(clean_value).lower()}"
                                     continue
                                 if not clean_value.endswith(".py"):
                                     continue
 
-                            # 默认下载逻辑（ext、jar 和 api 的 .py 文件）
+                            # 默认下载逻辑
                             filename = os.path.basename(clean_value)
                             if './' in value:
                                 path = os.path.dirname(url)
@@ -301,29 +328,26 @@ class GetSrc:
                                             site[field] = f'./{repo_dir_name}/{filename}'
                                             return True
                                     except Exception as e:
-                                        # print(f"下载 {json_url} 失败 (尝试 {attempt + 1}/{retries}): {e}")
                                         if attempt < retries - 1:
                                             await asyncio.sleep(1)
                                         else:
-                                            # print(f"下载 {json_url} 最终失败")
                                             return False
 
                             tasks.append(download_task())
 
             if tasks:
-                # print(f"总下载任务数: {len(tasks)}")
                 await asyncio.gather(*tasks, return_exceptions=True)
-            else:
-                pass
-                # print("没有找到符合条件的 ext、jar 或 api 文件需要下载")
 
         # 将更新后的数据写回文件
-        with open(file, 'w', encoding='utf-8') as f:
-            json.dump(api_data, f, indent=4, ensure_ascii=False)
-
-        if file2 and os.path.basename(file2):
-            with open(file2, 'w', encoding='utf-8') as f:
+        try:
+            with open(file, 'w', encoding='utf-8') as f:
                 json.dump(api_data, f, indent=4, ensure_ascii=False)
+
+            if file2 and os.path.basename(file2):
+                with open(file2, 'w', encoding='utf-8') as f:
+                    json.dump(api_data, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            print(f"写入文件失败: {e}")
 
     def get_jar(self, name, url, text):
         if not os.path.exists(f'{self.repo}/jar'):
@@ -342,7 +366,7 @@ class GetSrc:
                 timeout = 15
             r = self.s.get(jar, timeout=timeout, verify=False)
             if r.status_code != 200:
-                raise f'【jar下载失败】{name} jar地址: {jar} status_code:{r.status_code}'
+                raise Exception(f'jar下载失败, status_code:{r.status_code}')
             with open(f'{self.repo}/jar/{name}', 'wb') as f:
                 f.write(r.content)
             jar = f'./jar/{name}'
@@ -362,6 +386,7 @@ class GetSrc:
         if 'agit.ai' in url:
             print(f'下载异常：agit.ai失效')
             return
+        
         # 下载单线路
         item = {}
         try:
@@ -369,39 +394,51 @@ class GetSrc:
             r = self.s.get(url, headers=self.headers, allow_redirects=True, timeout=self.timeout, verify=False)
             if r.status_code == 200:
                 print("开始下载【线路】{}: {}".format(name, url))
-                if 'searchable' not in r.text:
-                    r = await self.js_render(url)
-                    if not r.text:
-                        r = self.picparse(url)
-                        if 'searchable' not in r:
-                            raise
-                        r = self.get_jar(name, url, r)
-                        with open(f'{self.repo}{self.sep}{filename}', 'w+', encoding='utf-8') as f:
-                            f.write(r)
-                            return
-                if 'searchable' not in r.text:
-                    raise
+                
+                # 自动检测编码
+                encoding = self.detect_encoding(r.content)
+                try:
+                    content = r.content.decode(encoding)
+                except:
+                    content = r.content.decode('utf-8', errors='ignore')
+                
+                if 'searchable' not in content:
+                    html = await self.js_render(url)
+                    if html and html.text:
+                        content = html.text
+                    else:
+                        pic_content = self.picparse(url)
+                        if pic_content and 'searchable' in pic_content:
+                            content = self.get_jar(name, url, pic_content)
+                            with open(f'{self.repo}{self.sep}{filename}', 'w+', encoding='utf-8') as f:
+                                f.write(content)
+                                return
+                
+                if 'searchable' not in content:
+                    raise Exception("内容中未找到searchable字段")
+                    
                 with open(f'{self.repo}{self.sep}{filename}', 'w+', encoding='utf-8') as f:
                     try:
-                        if r.content.decode('utf8').startswith(u'\ufeff'):
-                            str = r.content.decode('utf8').encode('utf-8')[3:].decode('utf-8')
-                        else:
-                            str = r.content.decode('utf-8').replace('./', f'{path}/')
+                        if content.startswith(u'\ufeff'):
+                            content = content.encode('utf-8')[3:].decode('utf-8')
+                        content = content.replace('./', f'{path}/')
                     except:
-                        str = r.text
-                    finally:
-                        r = self.ghproxy(str.replace('./', f'{path}/'))
+                        pass
 
-                    r = self.get_jar(name, url, r)
-                    f.write(r)
+                    content = self.ghproxy(content)
+                    content = self.get_jar(name, url, content)
+                    f.write(content)
                     pipes.add(name)
+                    
                 try:
                     if self.site_down:
                         await self.site_file_down([f'{self.repo}{self.sep}{filename}'], url)
                 except Exception as e:
                     print(f'下载ext中的json失败: {e}')
+                    
         except Exception as e:
             print(f"【线路】{name}: {url} 下载错误：{e}")
+            
         # 单仓时写入item
         if os.path.exists(f'{self.repo}{self.sep}{filename}') and cang:
             item['name'] = name
@@ -409,17 +446,19 @@ class GetSrc:
             items.append(item)
 
     async def down(self, data, s_name):
-        '''
-        下载单仓
-        '''
+        '''下载单仓'''
         newJson = {}
         global items
         items = []
         urls = data.get("urls") if data.get("urls") else data.get("sites")
         for u in urls:
-            name = u.get("name").strip()
+            name = u.get("name", "").strip()
+            if not name:
+                continue
             name = self.remove_emojis(name)
             url = u.get("url")
+            if not url:
+                continue
             url = self.ghproxy(url)
             filename = '{}.txt'.format(name)
             if name in pipes:
@@ -457,9 +496,7 @@ class GetSrc:
         for url in urls:
             # 解析URL
             parsed_url = urlparse(url)
-            # 获取查询参数
             query_params = parse_qs(parsed_url.query)
-            # 提取'signame'参数的值
             signame_value = query_params.get('signame', [''])[0]
             item = url.split('?&signame=')
             self.url = item[0]
@@ -483,9 +520,7 @@ class GetSrc:
                     await asyncio.to_thread(shutil.rmtree, dir_path)
 
     async def storeHouse(self):
-        '''
-        生成多仓json文件
-        '''
+        '''生成多仓json文件'''
         await self.download_drpy2_files()
 
         newJson = {}
@@ -493,50 +528,57 @@ class GetSrc:
 
         # 解析最初链接
         try:
-            res = self.s.get(self.url, headers=self.headers, verify=False, timeout=self.timeout).content.decode('utf8')
-            if '404 Not Found' in res:
+            res = self.s.get(self.url, headers=self.headers, verify=False, timeout=self.timeout)
+            # 自动检测编码
+            encoding = self.detect_encoding(res.content)
+            try:
+                res_text = res.content.decode(encoding)
+            except:
+                res_text = res.content.decode('utf-8', errors='ignore')
+                
+            if '404 Not Found' in res_text:
                 print(f'{self.url} 请求异常')
                 return
         except Exception as e:
-            if 'Read timed out' in str(e) or 'nodename nor servname provided, or not known' in str(e):
-                print(f'{self.url} 请求异常：{e}')
+            print(f"直接请求失败: {e}")
+            try:
+                html = await self.js_render(self.url)
+                if html and html.text:
+                    res_text = html.text.replace(' ', '').replace("'", '"')
+                else:
+                    res_text = self.picparse(self.url).replace(' ', '').replace("'", '"')
+            except Exception as js_e:
+                print(f"备用方案也失败: {js_e}")
                 return
-            html = await self.js_render(self.url)
-            res = html.text.replace(' ', '').replace("'", '"')
-            if 'Read timed out' in str(e) or 'nodename nor servname provided, or not known' in str(e):
-                print(f'{self.url} 请求异常：{e}')
-                return
-            if not res:
-                res = self.picparse(self.url).replace(' ', '').replace("'", '"')
 
         # 线路
-        if 'searchable' in str(res):
+        if 'searchable' in str(res_text):
             filename = self.signame + '.txt' if self.signame else f"{''.join(random.choices(string.ascii_letters + string.digits, k=10))}.txt"
             path = os.path.dirname(self.url)
             print("【线路】 {}: {}".format(self.repo, self.url))
             try:
                 with open(f'{self.repo}{self.sep}{filename}', 'w+', encoding='utf-8') as f, open(
                         f'{self.repo}{self.sep}{self.target}', 'w+', encoding='utf-8') as f2:
-                    r = self.ghproxy(res.replace('./', f'{path}/'))
-                    r = self.get_jar(filename.split('.txt')[0], self.url, r)
+                    content = self.ghproxy(res_text.replace('./', f'{path}/'))
+                    content = self.get_jar(filename.split('.txt')[0], self.url, content)
                     # json容错处理
-                    r = self.json_compatible(r)
-                    f.write(r)
-                    f2.write(r)
+                    content = self.json_compatible(content)
+                    f.write(content)
+                    f2.write(content)
             except Exception as e:
-                print(333333333, e)
+                print(f"写入文件失败: {e}")
             try:
                 if self.site_down:
                     await self.site_file_down([f'{self.repo}{self.sep}{filename}',f'{self.repo}{self.sep}{self.target}'], self.url)
             except Exception as e:
-                pass
+                print(f"下载site文件失败: {e}")
             return
 
         # json容错处理
-        res = self.json_compatible(res)
+        res_text = self.json_compatible(res_text)
         # 移除注释
         datas = ''
-        for d in res.splitlines():
+        for d in res_text.splitlines():
             if d.find(" //") != -1 or d.find("// ") != -1 or d.find(",//") != -1 or d.startswith("//"):
                 d = d.split(" //", maxsplit=1)[0]
                 d = d.split("// ", maxsplit=1)[0]
@@ -545,104 +587,102 @@ class GetSrc:
             datas = '\n'.join([datas, d])
         # 容错处理，便于json解析
         datas = datas.replace('\n', '')
-        res = datas.replace(' ', '').replace("'", '"').replace('\n', '')
+        res_text = datas.replace(' ', '').replace("'", '"').replace('\n', '')
         if datas.startswith(u'\ufeff'):
             try:
-                res = datas.encode('utf-8')[3:].decode('utf-8').replace(' ', '').replace("'", '"').replace('\n', '')
+                res_text = datas.encode('utf-8')[3:].decode('utf-8').replace(' ', '').replace("'", '"').replace('\n', '')
             except Exception as e:
-                res = datas.encode('utf-8')[4:].decode('utf-8').replace(' ', '').replace("'", '"').replace('\n', '')
+                res_text = datas.encode('utf-8')[4:].decode('utf-8').replace(' ', '').replace("'", '"').replace('\n', '')
 
         # 多仓
         elif 'storeHouse' in datas:
-            res = json.loads(str(res))
-            srcs = res.get("storeHouse") if res.get("storeHouse") else None
-            if srcs:
-                i = 1
-                for s in srcs:
-                    if i > self.num:
-                        break
-                    i += 1
-                    item = {}
-                    s_name = s.get("sourceName")
-                    s_name = self.remove_emojis(s_name)
-                    s_name = f'{s_name}.json'
-                    s_url = s.get("sourceUrl")
-                    print("【多仓】 {}: {}".format(s_name, s_url))
-                    try:
-                        if self.s.get(s_url, headers=self.headers).status_code >= 400:
+            try:
+                res_data = json.loads(str(res_text))
+                srcs = res_data.get("storeHouse") if res_data.get("storeHouse") else None
+                if srcs:
+                    i = 1
+                    for s in srcs:
+                        if i > self.num:
+                            break
+                        i += 1
+                        item = {}
+                        s_name = s.get("sourceName")
+                        if not s_name:
                             continue
-                    except Exception as e:
-                        print('地址无法响应: ',e)
-                        continue
-                    try:
-                        if self.s.get(s_url, headers=self.headers).content.decode('utf8').lstrip().startswith(u'\ufeff'):
-                            data = self.s.get(s_url, headers=self.headers).content.decode('utf-8')[1:]
-                        else:
-                            data = self.s.get(s_url, headers=self.headers).content.decode('utf-8')
-                    except Exception as e:
+                        s_name = self.remove_emojis(s_name)
+                        s_name = f'{s_name}.json'
+                        s_url = s.get("sourceUrl")
+                        if not s_url:
+                            continue
+                        print("【多仓】 {}: {}".format(s_name, s_url))
                         try:
-                            data = self.s.get(s_url, headers=self.headers).content.decode('utf8')
-                            data = data.encode('utf-8').decode('utf-8')
+                            if self.s.get(s_url, headers=self.headers).status_code >= 400:
+                                continue
                         except Exception as e:
+                            print('地址无法响应: ',e)
                             continue
-                    datas = ''
-                    for d in data.splitlines():
-                        if d.find(" //") != -1 or d.find("// ") != -1 or d.find(",//") != -1 or d.startswith("//"):
-                            d = d.split(" //", maxsplit=1)[0]
-                            d = d.split("// ", maxsplit=1)[0]
-                            d = d.split(",//", maxsplit=1)[0]
-                            d = d.split("//", maxsplit=1)[0]
-                        datas = '\n'.join([datas, d])
+                        try:
+                            s_res = self.s.get(s_url, headers=self.headers)
+                            encoding = self.detect_encoding(s_res.content)
+                            try:
+                                data_content = s_res.content.decode(encoding)
+                            except:
+                                data_content = s_res.content.decode('utf-8', errors='ignore')
+                        except Exception as e:
+                            print(f"获取子仓数据失败: {e}")
+                            continue
 
-                    try:
-                        if datas.lstrip().startswith(u'\ufeff'):
-                            datas = datas.encode('utf-8')[1:]
-                        await self.down(json.loads(datas), s_name)
-                    except Exception as e:
-                        try:
-                            data = self.s.get(s_url, headers=self.headers).text
-                        except Exception as e:
-                            continue
                         datas = ''
-                        for d in data.splitlines():
-                            datas += d.replace('\n', '').replace(' ', '').strip()
-                        datas = datas.encode('utf-8')
-                        if 'DOCTYPEhtml' in str(datas):
-                            continue
-                        datas = re.sub(r'^(.*?)\{', '{', datas.decode('utf-8'), flags=re.DOTALL | re.MULTILINE)
-                        await self.down(json.loads(datas), s_name)
-                    item['sourceName'] = s_name.split('.json')[0]
-                    item['sourceUrl'] = f'./{s_name}'
-                    items.append(item)
-                newJson["storeHouse"] = items
-                newJson = pprint.pformat(newJson, width=200)
-                with open(f'{self.repo}{self.sep}{self.target}', 'w+', encoding='utf-8') as f:
-                    print(f"开始写入{self.target}")
-                    f.write(json.dumps(json.loads(str(newJson).replace("'", '"')), sort_keys=True, indent=4, ensure_ascii=False))
+                        for d in data_content.splitlines():
+                            if d.find(" //") != -1 or d.find("// ") != -1 or d.find(",//") != -1 or d.startswith("//"):
+                                d = d.split(" //", maxsplit=1)[0]
+                                d = d.split("// ", maxsplit=1)[0]
+                                d = d.split(",//", maxmaxsplit=1)[0]
+                                d = d.split("//", maxsplit=1)[0]
+                            datas = '\n'.join([datas, d])
+
+                        try:
+                            if datas.lstrip().startswith(u'\ufeff'):
+                                datas = datas.encode('utf-8')[1:]
+                            await self.down(json.loads(datas), s_name)
+                        except Exception as e:
+                            print(f"处理子仓数据失败: {e}")
+                        item['sourceName'] = s_name.split('.json')[0]
+                        item['sourceUrl'] = f'./{s_name}'
+                        items.append(item)
+                    newJson["storeHouse"] = items
+                    newJson = pprint.pformat(newJson, width=200)
+                    with open(f'{self.repo}{self.sep}{self.target}', 'w+', encoding='utf-8') as f:
+                        print(f"开始写入{self.target}")
+                        f.write(json.dumps(json.loads(str(newJson).replace("'", '"')), sort_keys=True, indent=4, ensure_ascii=False))
+            except Exception as e:
+                print(f"处理多仓数据失败: {e}")
         # 单仓
         else:
             try:
-                res = json.loads(str(res))
+                res_data = json.loads(str(res_text))
             except Exception as e:
-                if 'domainnameisinvalid' in res:
+                if 'domainnameisinvalid' in res_text:
                     print(f'该域名无效，请提供正常可用接口')
                     return
-                html = await self.js_render(self.url)
-                res = html.text.replace(' ', '').replace("'", '"')
-                if not res:
-                    res = self.picparse(self.url).replace(' ', '').replace("'", '"')
                 try:
-                    res = json.loads(str(res))
+                    html = await self.js_render(self.url)
+                    if html and html.text:
+                        res_text = html.text.replace(' ', '').replace("'", '"')
+                    else:
+                        res_text = self.picparse(self.url).replace(' ', '').replace("'", '"')
+                    res_data = json.loads(str(res_text))
                 except Exception as e:
-                    # print(111111, e, res)
-                    pass
+                    print(f"解析单仓数据失败: {e}")
+                    return
             s_name = self.target
             s_url = self.url
             print("【单仓】 {}: {}".format(s_name, s_url))
             try:
-                await self.down(res, s_name)
+                await self.down(res_data, s_name)
             except Exception as e:
-                if 'searchable' in str(res):
+                print(f"处理单仓失败: {e}")
+                if 'searchable' in str(res_text):
                     filename = self.signame + '.txt' if self.signame else f"{''.join(random.choices(string.ascii_letters + string.digits, k=10))}.txt"
                     print("【线路】 {}: {}".format(filename, self.url))
                     try:
@@ -668,7 +708,7 @@ def main():
     repo = os.getenv('TVBOX_REPO', 'tvbox')
     num = int(os.getenv('TVBOX_NUM', '10'))
     target = os.getenv('TVBOX_TARGET', 'tvbox.json')
-    timeout = int(os.getenv('TVBOX_TIMEOUT', '3'))
+    timeout = int(os.getenv('TVBOX_TIMEOUT', '10'))  # 增加默认超时时间
     jar_suffix = os.getenv('TVBOX_JAR_SUFFIX', 'jar')
     site_down = os.getenv('TVBOX_SITE_DOWN', 'true').lower() == 'true'
     
