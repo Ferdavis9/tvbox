@@ -1,59 +1,44 @@
-# 基础镜像：Python 3.9 轻量版
+# 基础镜像：Python 3.9 slim
 FROM python:3.9-slim
 
-# 维护者信息（可选）
-LABEL maintainer="tvbox-docker"
+# 维护者信息
+LABEL maintainer="your-name <your-email>"
 
-# 设置环境变量（默认值：URL为示例接口，更新间隔96小时）
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
-    TZ=Asia/Shanghai \
-    TVBOX_URL="https://tvbox.catvod.com/xs/api.json?signame=xs" \
-    TVBOX_UPDATE_INTERVAL=96 \
-    TVBOX_NUM=10 \
-    TVBOX_TIMEOUT=3 \
-    TVBOX_JAR_SUFFIX=jar \
-    SITE_DOWN=True
+# 设置中国时区
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# 安装系统依赖（Chrome、Filebrowser等，移除Cron依赖）
+# 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libssl-dev \
-    libffi-dev \
-    python3-dev \
     wget \
+    ca-certificates \
     curl \
     unzip \
-    chromium-browser \
-    procps \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装Filebrowser（文件管理工具，暴露27677端口）
-RUN wget -q https://github.com/filebrowser/filebrowser/releases/download/v2.27.0/linux-amd64-filebrowser.tar.gz \
-    && tar -zxf linux-amd64-filebrowser.tar.gz -C /usr/local/bin/ \
-    && rm -f linux-amd64-filebrowser.tar.gz \
-    && chmod +x /usr/local/bin/filebrowser
+# 下载并安装Filebrowser（适配amd64架构，其他架构需替换下载链接）
+RUN wget https://github.com/filebrowser/filebrowser/releases/download/v2.23.0/linux-amd64-filebrowser.tar.gz \
+    && tar -zxvf linux-amd64-filebrowser.tar.gz \
+    && mv filebrowser /usr/local/bin/ \
+    && chmod +x /usr/local/bin/filebrowser \
+    && rm -rf linux-amd64-filebrowser.tar.gz LICENSE README.md
 
 # 创建工作目录
 WORKDIR /app
 
-# 复制脚本和依赖文件
-COPY tvbox_tools.py .
+# 复制依赖文件并安装Python依赖
 COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 安装Python依赖
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 复制启动脚本
+# 复制应用文件
+COPY tvbox_tools.py .
 COPY start.sh .
-RUN chmod +x start.sh
+
+# 赋予启动脚本执行权限
+RUN chmod +x /app/start.sh
 
 # 暴露Filebrowser端口
 EXPOSE 27677
 
-# 数据卷（可选，持久化存储下载的文件）
-VOLUME ["/app/tvbox_files"]
-
-# 启动容器时执行的命令
+# 启动命令
 CMD ["/app/start.sh"]
