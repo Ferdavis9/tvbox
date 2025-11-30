@@ -1,0 +1,4 @@
+requests==2.27.1
+aiohttp==3.8.4
+commentjson==0.9.0
+urllib3==1.26.9
