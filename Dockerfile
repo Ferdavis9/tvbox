@@ -5,10 +5,12 @@ RUN apt-get update && apt-get install -y tzdata && \
     ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone
 
-# 安装必要的系统依赖
+# 安装必要的系统依赖（包括chromium）
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
+    chromium \
+    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
 # 下载并安装 filebrowser
@@ -17,6 +19,9 @@ RUN wget https://github.com/filebrowser/filebrowser/releases/download/v2.23.0/li
     mv filebrowser /usr/local/bin/ && \
     chmod +x /usr/local/bin/filebrowser && \
     rm linux-amd64-filebrowser.tar.gz
+
+# 设置Chromium路径
+ENV CHROMIUM_PATH /usr/bin/chromium
 
 # 创建工作目录
 WORKDIR /app
@@ -48,7 +53,7 @@ ENV TVBOX_URL=""
 ENV TVBOX_REPO="tvbox"
 ENV TVBOX_NUM=10
 ENV TVBOX_TARGET="tvbox.json"
-ENV TVBOX_TIMEOUT=3
+ENV TVBOX_TIMEOUT=10
 ENV TVBOX_JAR_SUFFIX="jar"
 ENV TVBOX_SITE_DOWN="true"
 
