@@ -27,7 +27,7 @@ while true; do
     echo "======================================="
     
     # 执行Python脚本，输出日志到download.log
-    python /app/cnb_tvbox_tools.py >> /app/download.log 2>&1
+    python /app/tvbox_tools.py >> /app/download.log 2>&1
     
     echo -e "\n======================================="
     echo "本次任务完成！下次更新时间：$(date -d "$UPDATE_INTERVAL_HOURS hours" +'%Y-%m-%d %H:%M:%S')"
