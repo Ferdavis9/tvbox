@@ -21,7 +21,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制应用程序代码
-COPY cnb_tvbox_tools.py .
+COPY tvbox_tools.py .
 
 # 下载并安装FileBrowser
 RUN ARCH=$(uname -m) && \
@@ -80,7 +80,7 @@ fi\n\
 # 运行源下载程序\n\
 echo "开始下载TVBox源..."\n\
 cd /app\n\
-python cnb_tvbox_tools.py\n\
+python tvbox_tools.py\n\
 \n\
 # 启动FileBrowser（后台运行）\n\
 echo "启动FileBrowser服务..."\n\
