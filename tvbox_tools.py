@@ -462,7 +462,7 @@ class GetSrc:
         """批量处理在线接口"""
         print(f'--------- 开始处理在线接口 ----------')
         if not self.url:
-            print("错误：未指定下载链接（url参数为空）")
+            print("错误：未指定下载链接（TVBOX_URL环境变量为空）")
             return
         
         urls = self.url.split(',')
@@ -663,24 +663,25 @@ class GetSrc:
         self.all()
         
         end_time = time.time()
-        print(f'\n任务完成！总耗时: {end_time - start_time:.2f} 秒')
+        print(f'\n本次任务完成！耗时: {end_time - start_time:.2f} 秒')
         print(f'文件存储路径: {self.root_dir}')
         print(f'可通过Filebrowser访问: http://容器IP:27677')
 
 
 if __name__ == '__main__':
-    # 配置参数（可根据需求修改）
-    url = 'https://tvbox.catvod.com/xs/api.json?signame=xs'  # 替换为你的TVBox源接口
-    site_down = True  # 下载site中的jar/ext/api文件
-    num = 10  # 多仓最大下载数量
-    timeout = 3  # 请求超时时间（秒）
-    jar_suffix = 'jar'  # jar文件后缀
+    # 从环境变量读取配置（优先级：环境变量 > 默认值）
+    TVBOX_URL = os.getenv('TVBOX_URL', 'https://tvbox.catvod.com/xs/api.json?signame=xs')  # 核心：TVBox源接口URL
+    TVBOX_UPDATE_INTERVAL = os.getenv('TVBOX_UPDATE_INTERVAL', '')  # 仅用于启动脚本读取，脚本内不使用
+    SITE_DOWN = os.getenv('SITE_DOWN', 'True').lower() == 'true'  # 是否下载关联文件
+    NUM = int(os.getenv('TVBOX_NUM', 10))  # 多仓最大下载数量
+    TIMEOUT = int(os.getenv('TVBOX_TIMEOUT', 3))  # 请求超时时间
+    JAR_SUFFIX = os.getenv('TVBOX_JAR_SUFFIX', 'jar')  # jar文件后缀
     
-    # 启动任务
+    # 启动单次下载任务
     GetSrc(
-        url=url,
-        num=num,
-        timeout=timeout,
-        jar_suffix=jar_suffix,
-        site_down=site_down
+        url=TVBOX_URL,
+        num=NUM,
+        timeout=TIMEOUT,
+        jar_suffix=JAR_SUFFIX,
+        site_down=SITE_DOWN
     ).run()
