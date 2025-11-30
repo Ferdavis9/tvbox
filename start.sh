@@ -1,38 +1,30 @@
 #!/bin/bash
 set -e
 
-# 读取环境变量（更新间隔，单位：小时；默认96小时）
-UPDATE_INTERVAL_HOURS=${TVBOX_UPDATE_INTERVAL:-96}
-# 转换为秒（小时×3600）
-UPDATE_INTERVAL_SECONDS=$((UPDATE_INTERVAL_HOURS * 3600))
+# 环境变量默认值
+TVBOX_URL=${TVBOX_URL:-""}
+UPDATE_INTERVAL=${UPDATE_INTERVAL:-345600}  # 默认96小时（345600秒）
+TVBOX_MIRROR=${TVBOX_MIRROR:-4}
+TVBOX_NUM=${TVBOX_NUM:-10}
+TVBOX_SITE_DOWN=${TVBOX_SITE_DOWN:-true}
 
-echo "======================================="
-echo "TVBox文件下载服务启动"
-echo "---------------------------------------"
-echo "当前配置："
-echo "TVBox源接口URL: $TVBOX_URL"
-echo "自动更新间隔: $UPDATE_INTERVAL_HOURS 小时（$UPDATE_INTERVAL_SECONDS 秒）"
-echo "是否下载关联文件（jar/ext/api）: $SITE_DOWN"
-echo "Filebrowser访问地址: http://容器IP:27677（用户名：admin，密码：admin）"
-echo "======================================="
+# 创建存储目录
+mkdir -p /tvbox_data
 
 # 启动Filebrowser（后台运行）
-echo "启动Filebrowser服务..."
-filebrowser -r /app/tvbox_files -p 27677 -u admin -P admin &
+echo "启动Filebrowser，端口27677"
+filebrowser -r /tvbox_data -a 0.0.0.0 -p 27677 -d /tvbox_data/filebrowser.db &
 
-# 循环执行下载任务
+# 定时更新逻辑
+echo "开始定时更新，间隔: $UPDATE_INTERVAL 秒"
 while true; do
-    echo -e "\n======================================="
-    echo "开始执行TVBox源下载/更新任务（$(date +'%Y-%m-%d %H:%M:%S')）"
-    echo "======================================="
-    
-    # 执行Python脚本，输出日志到download.log
-    python /app/tvbox_tools.py >> /app/download.log 2>&1
-    
-    echo -e "\n======================================="
-    echo "本次任务完成！下次更新时间：$(date -d "$UPDATE_INTERVAL_HOURS hours" +'%Y-%m-%d %H:%M:%S')"
-    echo "======================================="
-    
-    # 休眠指定间隔时间
-    sleep $UPDATE_INTERVAL_SECONDS
+    echo "====================================="
+    echo "开始执行TVBox源更新: $(date)"
+    echo "TVBOX_URL: $TVBOX_URL"
+    # 执行Python脚本
+    python /app/tvbox_tools.py
+    echo "更新完成，下次更新时间: $(date -d "+$UPDATE_INTERVAL seconds")"
+    echo "====================================="
+    # 休眠指定时间
+    sleep $UPDATE_INTERVAL
 done
