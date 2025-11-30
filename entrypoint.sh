@@ -1,44 +1,48 @@
 #!/bin/bash
 
 # 设置环境变量
-TVBOX_URL=${TVBOX_URL:-""}
-UPDATE_INTERVAL=${UPDATE_INTERVAL:-96}
-TVBOX_REPO=${TVBOX_REPO:-"tvbox_data"}
-TVBOX_MIRROR=${TVBOX_MIRROR:-4}
-TVBOX_NUM=${TVBOX_NUM:-10}
-TVBOX_SITE_DOWN=${TVBOX_SITE_DOWN:-true}
-TVBOX_JAR_SUFFIX=${TVBOX_JAR_SUFFIX:-"jar"}
+INTERVAL=${UPDATE_INTERVAL:-96}
+URL=${TVBOX_URL:-""}
+REPO=${TVBOX_REPO:-"tvbox"}
+NUM=${TVBOX_NUM:-10}
+TARGET=${TVBOX_TARGET:-"tvbox.json"}
+TIMEOUT=${TVBOX_TIMEOUT:-3}
+JAR_SUFFIX=${TVBOX_JAR_SUFFIX:-"jar"}
+SITE_DOWN=${TVBOX_SITE_DOWN:-"true"}
 
-# 检查必要的环境变量
-if [ -z "$TVBOX_URL" ]; then
+# 检查必要环境变量
+if [ -z "$URL" ]; then
     echo "错误: 必须设置 TVBOX_URL 环境变量"
     exit 1
 fi
 
-# 创建数据目录
-mkdir -p /data/$TVBOX_REPO
+# 设置工作目录到数据卷
+cd /data
 
-# 配置Filebrowser
-filebrowser config init -d /config/filebrowser.db
-filebrowser users add admin admin --perm.admin -d /config/filebrowser.db
-filebrowser config set --baseurl "/" -d /config/filebrowser.db
-filebrowser config set --port 27677 -d /config/filebrowser.db
-filebrowser config set --root /data -d /config/filebrowser.db
+# 更新函数
+update_tvbox() {
+    echo "$(date): 开始更新TVBox源..."
+    TVBOX_URL="$URL" \
+    TVBOX_REPO="$REPO" \
+    TVBOX_NUM="$NUM" \
+    TVBOX_TARGET="$TARGET" \
+    TVBOX_TIMEOUT="$TIMEOUT" \
+    TVBOX_JAR_SUFFIX="$JAR_SUFFIX" \
+    TVBOX_SITE_DOWN="$SITE_DOWN" \
+    python3 /app/tvbox_tools.py
+    echo "$(date): TVBox源更新完成"
+}
 
-# 设置定时任务
-echo "设置定时任务，每 ${UPDATE_INTERVAL} 小时更新一次"
-echo "0 */${UPDATE_INTERVAL} * * * /usr/local/bin/python3 /app/update_script.py >> /var/log/cron.log 2>&1" > /etc/cron.d/tvbox-update
-chmod 0644 /etc/cron.d/tvbox-update
-crontab /etc/cron.d/tvbox-update
+# 首次更新
+update_tvbox
 
-# 首次运行更新脚本
-echo "首次运行更新脚本..."
-python3 /app/update_script.py
+# 启动FileBrowser（后台运行）
+echo "启动FileBrowser服务在端口27677..."
+filebrowser --port 27677 --address 0.0.0.0 --root /data/tvbox --noauth &
 
-# 启动cron服务
-service cron start
-
-# 启动Filebrowser
-echo "Filebrowser 服务启动在端口 27677"
-echo "数据目录: /data"
-filebrowser -d /config/filebrowser.db
+# 定时更新循环
+while true; do
+    echo "等待 $INTERVAL 小时后再次更新..."
+    sleep $(($INTERVAL * 3600))
+    update_tvbox
+done
